@@ -57,11 +57,13 @@ class Browser:
             width=WIDTH,
             height=HEIGHT
         )
-        self.canvas.pack()
+        self.canvas.pack(fill=tkinter.BOTH, expand=1)
 
         self.scroll = 0
         self.display_list = []
-
+        self.text = ""
+        self.width = WIDTH
+        self.height = HEIGHT
 
         # Keyboard scrolling
         self.window.bind("<Down>", self.scrolldown)
@@ -74,6 +76,8 @@ class Browser:
         self.window.bind("<Button-4>", self.mousewheel)
         self.window.bind("<Button-5>", self.mousewheel)
 
+        # Resizing
+        self.window.bind("<Configure>", self.resize)
 
     def scrolldown(self, e):
         self.scroll += SCROLL_STEP
@@ -100,6 +104,13 @@ class Browser:
         elif e.num == 4:    # scroll up
             self.scrollup(e)
             
+    def resize(self, e):
+        self.width = e.width
+        self.height = e.height
+                        
+        self.display_list = self.layout(self.text)
+        self.draw()
+
     def layout(self, text):
         display_list = []
         cursor_x, cursor_y = HSTEP, VSTEP
@@ -112,7 +123,7 @@ class Browser:
 
             display_list.append((cursor_x, cursor_y, c))
             cursor_x += HSTEP
-            if cursor_x >= WIDTH - HSTEP:
+            if cursor_x >= self.width - HSTEP:
                 cursor_x = HSTEP
                 cursor_y += VSTEP
 
@@ -121,7 +132,7 @@ class Browser:
     def draw(self):
         self.canvas.delete("all")
         for x, y, c in self.display_list:
-            if y > self.scroll + HEIGHT:
+            if y > self.scroll + self.height:
                 continue
             if y + VSTEP < self.scroll:
                 continue
@@ -129,8 +140,8 @@ class Browser:
 
     def load(self, url):
         body = url.request()
-        text = lex(body)
-        self.display_list = self.layout(text)
+        self.text = lex(body)
+        self.display_list = self.layout(self.text)
         self.draw()
 
 
