@@ -3,7 +3,7 @@ import ssl
 import gzip
 import tkinter
 
-WIDTH, HEIGHT = 800, 600
+WIDTH, HEIGHT = 1900, 1300
 SCROLL_STEP = 100
 HSTEP, VSTEP = 18, 25
 
@@ -62,17 +62,54 @@ class Browser:
         self.scroll = 0
         self.display_list = []
 
+
+        # Keyboard scrolling
         self.window.bind("<Down>", self.scrolldown)
+        self.window.bind("<Up>", self.scrollup)
+
+        # Mouse wheel scrolling (Windows / macOS)
+        self.window.bind("<MouseWheel>", self.mousewheel)
+
+        # Mouse wheel scrolling (Linux)
+        self.window.bind("<Button-4>", self.mousewheel)
+        self.window.bind("<Button-5>", self.mousewheel)
+
 
     def scrolldown(self, e):
         self.scroll += SCROLL_STEP
         self.draw()
 
+    def scrollup(self, e):
+        self.scroll -= SCROLL_STEP
+        if self.scroll < 0:
+            self.scroll = 0
+        self.draw()
+
+    def mousewheel(self, e):
+        # Windows / macOS
+        if hasattr(e, "delta") and e.delta:
+            if e.delta < 0:
+                self.scrolldown(e)
+            else:
+                self.scrollup(e)
+            return
+
+        # Linux
+        if e.num == 5:      # scroll down
+            self.scrolldown(e)
+        elif e.num == 4:    # scroll up
+            self.scrollup(e)
+            
     def layout(self, text):
         display_list = []
         cursor_x, cursor_y = HSTEP, VSTEP
 
         for c in text:
+            if c == "\n":
+                cursor_x = HSTEP
+                cursor_y += VSTEP
+                continue
+
             display_list.append((cursor_x, cursor_y, c))
             cursor_x += HSTEP
             if cursor_x >= WIDTH - HSTEP:
@@ -95,6 +132,7 @@ class Browser:
         text = lex(body)
         self.display_list = self.layout(text)
         self.draw()
+
 
 
 class URL:
