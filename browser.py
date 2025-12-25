@@ -1,7 +1,32 @@
 import socket
 import ssl
 import gzip
+import tkinter
 
+
+WIDTH, HEIGHT = 800, 600
+
+class Browser:
+    def __init__(self):
+        self.window = tkinter.Tk()
+        self.canvas = tkinter.Canvas(
+            self.window, 
+            width=WIDTH,
+            height=HEIGHT
+        )
+        self.canvas.pack()
+
+    def load(self, url):
+        text = url.lex(url.request())
+
+        HSTEP, VSTEP = 13, 18
+        cursor_x, cursor_y = HSTEP, VSTEP
+        for c in text:
+            self.canvas.create_text(cursor_x, cursor_y, text=c)
+            cursor_x += HSTEP
+            if cursor_x >= WIDTH - HSTEP:
+                cursor_y += VSTEP
+                cursor_x = HSTEP
 
 class URL:
     sockets = {}
@@ -173,7 +198,8 @@ class URL:
         return b"".join(chunks)
 
     # Show HTML
-    def show(self, body):
+    def lex(self, body):
+        text = ""
         in_tag = False
         entity = ""
         in_entity = False
@@ -183,9 +209,9 @@ class URL:
                 if c == ";":
                     entity += c
                     if entity == "&lt;":
-                        print("<", end="")
+                        text += "<"
                     elif entity == "&gt;":
-                        print(">", end="")
+                        text += ">"
                     else:
                         print(entity, end="")
                     in_entity = False
@@ -204,8 +230,10 @@ class URL:
             elif c == ">":
                 in_tag = False
             elif not in_tag:
-                print(c, end="")
+                text += c
 
+        return text
+    
     def load(self):
         if self.scheme == "view-source":
             body = self.inner.request()
@@ -227,5 +255,7 @@ if __name__ == "__main__":
         testfile = os.path.join(home, "Documents", "webbrowser", "testfile")
         url = URL("file://" + testfile)
 
-    url.load()
-    url.load()
+    Browser().load(url)
+    tkinter.mainloop()
+
+
