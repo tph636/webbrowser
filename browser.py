@@ -64,7 +64,14 @@ class Browser:
         self.text = ""
         self.width = WIDTH
         self.height = HEIGHT
+        self.document_height = 0
 
+        self.scrollbar = tkinter.Scrollbar(
+            self.window,
+            orient="vertical",
+            command=self.scrollbar_move
+        )
+        
         # Keyboard scrolling
         self.window.bind("<Down>", self.scrolldown)
         self.window.bind("<Up>", self.scrollup)
@@ -79,8 +86,13 @@ class Browser:
         # Resizing
         self.window.bind("<Configure>", self.resize)
 
+    def scrollbar_move(self, *args):
+        None
+
     def scrolldown(self, e):
         self.scroll += SCROLL_STEP
+        if self.scroll > self.document_height:
+            self.scroll = self.document_height
         self.draw()
 
     def scrollup(self, e):
@@ -126,6 +138,8 @@ class Browser:
             if cursor_x >= self.width - HSTEP:
                 cursor_x = HSTEP
                 cursor_y += VSTEP
+
+        if display_list: self.document_height = cursor_y - self.height
 
         return display_list
 
