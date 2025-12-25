@@ -48,6 +48,7 @@ def lex(body):
 
     return text
 
+import tkinter
 
 class Browser:
     def __init__(self):
@@ -66,7 +67,6 @@ class Browser:
             command=self.scrollbar_move,
             width=40,
         )
-        self.scrollbar.pack(side=tkinter.RIGHT, fill=tkinter.Y)
 
         self.canvas.config(yscrollcommand=self.scrollbar.set)
 
@@ -87,12 +87,14 @@ class Browser:
     def scrollbar_move(self, *args):
         if args[0] == "moveto":
             fraction = float(args[1])
-            self.scroll = fraction * max(0, self.document_height - self.height)
+            self.scroll = fraction * self.document_height
         elif args[0] == "scroll":
             amount = int(args[1])
             self.scroll += amount * SCROLL_STEP
 
-        self.scroll = max(0, min(self.scroll, max(0, self.document_height - self.height)))
+        # Clamp based on document height minus visible height
+        max_scroll = max(0, self.document_height - self.height)
+        self.scroll = max(0, min(self.scroll, max_scroll))
         self.draw()
 
     def scrolldown(self, e=None):
@@ -119,20 +121,32 @@ class Browser:
             elif e.num == 4:
                 self.scrollup()
 
+    def position_scrollbar(self):
+        if self.document_height > self.height:
+            # Place scrollbar on the right side with fixed width
+            self.scrollbar.place(
+                x=self.width - 40,
+                y=0,
+                width=40,
+                height=self.height
+            )
+        else:
+            self.scrollbar.place_forget()  # Hide if not needed
+
     def resize(self, e):
-        # Use actual canvas size, not window size
         self.width = self.canvas.winfo_width()
         self.height = self.canvas.winfo_height()
 
         if self.text:
             self.display_list = self.layout(self.text)
             self.draw()
+        
+        # Position scrollbar after resize
+        self.position_scrollbar()
 
     def layout(self, text):
         display_list = []
         cursor_x, cursor_y = HSTEP, VSTEP
-
-        max_width = self.width - HSTEP
 
         for c in text:
             if c == "\n":
@@ -143,18 +157,12 @@ class Browser:
             display_list.append((cursor_x, cursor_y, c))
             cursor_x += HSTEP
 
-            if cursor_x >= max_width:
+            if cursor_x >= self.width - 40:  # Account for scrollbar width
                 cursor_x = HSTEP
                 cursor_y += VSTEP
 
         self.document_height = cursor_y
-        
-        # Show/hide scrollbar based on document size
-        if self.document_height <= self.height:
-            self.scrollbar.pack_forget()  # Hide scrollbar
-        else:
-            self.scrollbar.pack(side=tkinter.RIGHT, fill=tkinter.Y)  # Show scrollbar
-            
+                    
         return display_list
 
     def draw(self):
@@ -168,7 +176,7 @@ class Browser:
                 continue
             self.canvas.create_text(x, y - self.scroll, text=c, anchor="nw")
 
-        # Scrollbar
+        # Update scrollbar position and thumb
         if self.document_height > self.height:
             thumb_size = self.height / self.document_height
             thumb_position = self.scroll / self.document_height
@@ -180,6 +188,9 @@ class Browser:
             last = max(0, min(1, last))
             
             self.scrollbar.set(first, last)
+            
+            # Reposition scrollbar in case canvas size changed
+            self.position_scrollbar()
 
     def load(self, url):
         body = url.request()
