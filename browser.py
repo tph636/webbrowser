@@ -52,12 +52,23 @@ def lex(body):
 class Browser:
     def __init__(self):
         self.window = tkinter.Tk()
+
         self.canvas = tkinter.Canvas(
             self.window,
             width=WIDTH,
             height=HEIGHT
         )
-        self.canvas.pack(fill=tkinter.BOTH, expand=1)
+        self.canvas.pack(side=tkinter.LEFT, fill=tkinter.BOTH, expand=1)
+
+        self.scrollbar = tkinter.Scrollbar(
+            self.window,
+            orient="vertical",
+            command=self.scrollbar_move,
+            width=40,
+        )
+        self.scrollbar.pack(side=tkinter.RIGHT, fill=tkinter.Y)
+
+        self.canvas.config(yscrollcommand=self.scrollbar.set)
 
         self.scroll = 0
         self.display_list = []
@@ -66,66 +77,62 @@ class Browser:
         self.height = HEIGHT
         self.document_height = 0
 
-        self.scrollbar = tkinter.Scrollbar(
-            self.window,
-            orient="vertical",
-            command=self.scrollbar_move
-        )
-        
-        # Keyboard scrolling
         self.window.bind("<Down>", self.scrolldown)
         self.window.bind("<Up>", self.scrollup)
-
-        # Mouse wheel scrolling (Windows / macOS)
         self.window.bind("<MouseWheel>", self.mousewheel)
-
-        # Mouse wheel scrolling (Linux)
         self.window.bind("<Button-4>", self.mousewheel)
         self.window.bind("<Button-5>", self.mousewheel)
-
-        # Resizing
         self.window.bind("<Configure>", self.resize)
 
     def scrollbar_move(self, *args):
-        None
+        if args[0] == "moveto":
+            fraction = float(args[1])
+            self.scroll = fraction * max(0, self.document_height - self.height)
+        elif args[0] == "scroll":
+            amount = int(args[1])
+            self.scroll += amount * SCROLL_STEP
 
-    def scrolldown(self, e):
-        self.scroll += SCROLL_STEP
-        if self.scroll > self.document_height:
-            self.scroll = self.document_height
+        self.scroll = max(0, min(self.scroll, max(0, self.document_height - self.height)))
         self.draw()
 
-    def scrollup(self, e):
-        self.scroll -= SCROLL_STEP
-        if self.scroll < 0:
-            self.scroll = 0
+    def scrolldown(self, e=None):
+        max_scroll = max(0, self.document_height - self.height)
+        self.scroll = min(self.scroll + SCROLL_STEP, max_scroll)
+        self.draw()
+
+    def scrollup(self, e=None):
+        self.scroll = max(self.scroll - SCROLL_STEP, 0)
         self.draw()
 
     def mousewheel(self, e):
-        # Windows / macOS
-        if hasattr(e, "delta") and e.delta:
-            if e.delta < 0:
-                self.scrolldown(e)
-            else:
-                self.scrollup(e)
-            return
+        # Only process mousewheel if scrollbar is visible
+        if self.scrollbar.winfo_ismapped():
+            if hasattr(e, "delta") and e.delta:
+                if e.delta < 0:
+                    self.scrolldown()
+                else:
+                    self.scrollup()
+                return
 
-        # Linux
-        if e.num == 5:      # scroll down
-            self.scrolldown(e)
-        elif e.num == 4:    # scroll up
-            self.scrollup(e)
-            
+            if e.num == 5:
+                self.scrolldown()
+            elif e.num == 4:
+                self.scrollup()
+
     def resize(self, e):
-        self.width = e.width
-        self.height = e.height
-                        
-        self.display_list = self.layout(self.text)
-        self.draw()
+        # Use actual canvas size, not window size
+        self.width = self.canvas.winfo_width()
+        self.height = self.canvas.winfo_height()
+
+        if self.text:
+            self.display_list = self.layout(self.text)
+            self.draw()
 
     def layout(self, text):
         display_list = []
         cursor_x, cursor_y = HSTEP, VSTEP
+
+        max_width = self.width - HSTEP
 
         for c in text:
             if c == "\n":
@@ -135,29 +142,50 @@ class Browser:
 
             display_list.append((cursor_x, cursor_y, c))
             cursor_x += HSTEP
-            if cursor_x >= self.width - HSTEP:
+
+            if cursor_x >= max_width:
                 cursor_x = HSTEP
                 cursor_y += VSTEP
 
-        if display_list: self.document_height = cursor_y - self.height
-
+        self.document_height = cursor_y
+        
+        # Show/hide scrollbar based on document size
+        if self.document_height <= self.height:
+            self.scrollbar.pack_forget()  # Hide scrollbar
+        else:
+            self.scrollbar.pack(side=tkinter.RIGHT, fill=tkinter.Y)  # Show scrollbar
+            
         return display_list
 
     def draw(self):
         self.canvas.delete("all")
+
+        # Text
         for x, y, c in self.display_list:
             if y > self.scroll + self.height:
                 continue
             if y + VSTEP < self.scroll:
                 continue
-            self.canvas.create_text(x, y - self.scroll, text=c)
+            self.canvas.create_text(x, y - self.scroll, text=c, anchor="nw")
+
+        # Scrollbar
+        if self.document_height > self.height:
+            thumb_size = self.height / self.document_height
+            thumb_position = self.scroll / self.document_height
+            first = thumb_position
+            last = first + thumb_size
+            
+            # Ensure values are within 0-1 range
+            first = max(0, min(1, first))
+            last = max(0, min(1, last))
+            
+            self.scrollbar.set(first, last)
 
     def load(self, url):
         body = url.request()
         self.text = lex(body)
         self.display_list = self.layout(self.text)
         self.draw()
-
 
 
 class URL:
