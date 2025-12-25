@@ -187,103 +187,130 @@ class Browser:
         self.display_list = self.layout(self.text)
         self.draw()
 
-
 class URL:
     sockets = {}
     cache = {}
 
     def __init__(self, url):
+        # data:
         if url.startswith("data:"):
             self.scheme = "data"
             self.data = url[len("data:"):]
             return
 
+        # file://
         if url.startswith("file://"):
             self.scheme = "file"
             self.path = url[len("file://"):]
             return
 
+        # view-source:
         if url.startswith("view-source:"):
             self.scheme = "view-source"
             self.inner = URL(url[len("view-source:"):])
             return
 
-        self.scheme, rest = url.split("://", 1)
-        self.port = 443 if self.scheme == "https" else 80
+        # Everything else. Try to parse as http/https
+        try:
+            self.scheme, rest = url.split("://", 1)
+            self.port = 443 if self.scheme == "https" else 80
 
-        if "/" not in rest:
-            rest += "/"
+            if self.scheme not in ("http", "https"):
+                raise ValueError("Unknown scheme")
 
-        self.host, rest = rest.split("/", 1)
-        self.path = "/" + rest
+            if "/" not in rest:
+                rest += "/"
 
-        if ":" in self.host:
-            self.host, port = self.host.split(":", 1)
-            self.port = int(port)
+            self.host, rest = rest.split("/", 1)
+            self.path = "/" + rest
+
+            if ":" in self.host:
+                self.host, port = self.host.split(":", 1)
+                self.port = int(port)
+
+        except:
+            self.scheme = "about"
+            self.path = "blank"
+            self.data = ""
+            self.host = None
+            self.port = None
+
 
     def request(self):
-        if self.scheme == "data":
-            return self.data.split(",", 1)[1]
+        try:
+            if self.scheme == "about":
+                return self.data
 
-        if self.scheme == "file":
-            with open(self.path, "r", encoding="utf8") as f:
-                return f.read()
+            if self.scheme == "data":
+                return self.data.split(",", 1)[1]
 
-        if self.scheme == "view-source":
-            return self.inner.request()
+            if self.scheme == "file":
+                with open(self.path, "r", encoding="utf8") as f:
+                    return f.read()
 
-        key = (self.host, self.port)
+            if self.scheme == "view-source":
+                return self.inner.request()
 
-        if key in URL.cache:
-            return URL.cache[key]
+            key = (self.host, self.port)
 
-        if key not in URL.sockets:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect((self.host, self.port))
-            if self.scheme == "https":
-                ctx = ssl.create_default_context()
-                s = ctx.wrap_socket(s, server_hostname=self.host)
-            URL.sockets[key] = s
-        else:
-            s = URL.sockets[key]
+            if key in URL.cache:
+                return URL.cache[key]
 
-        request = (
-            f"GET {self.path} HTTP/1.1\r\n"
-            f"Host: {self.host}\r\n"
-            f"Connection: keep-alive\r\n"
-            f"Accept-Encoding: gzip\r\n"
-            f"\r\n"
-        )
+            if key not in URL.sockets:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.connect((self.host, self.port))
+                if self.scheme == "https":
+                    ctx = ssl.create_default_context()
+                    s = ctx.wrap_socket(s, server_hostname=self.host)
+                URL.sockets[key] = s
+            else:
+                s = URL.sockets[key]
 
-        s.send(request.encode("utf8"))
-        response = s.makefile("rb")
+            request = (
+                f"GET {self.path} HTTP/1.1\r\n"
+                f"Host: {self.host}\r\n"
+                f"Connection: keep-alive\r\n"
+                f"Accept-Encoding: gzip\r\n"
+                f"\r\n"
+            )
 
-        statusline = response.readline().decode("utf8")
-        _, status, _ = statusline.split(" ", 2)
+            s.send(request.encode("utf8"))
+            response = s.makefile("rb")
 
-        headers = {}
-        while True:
-            line = response.readline().decode("utf8")
-            if line == "\r\n":
-                break
-            h, v = line.split(":", 1)
-            headers[h.lower()] = v.strip()
+            statusline = response.readline().decode("utf8")
+            _, status, _ = statusline.split(" ", 2)
 
-        if status.startswith("3"):
-            return URL(headers["location"]).request()
+            headers = {}
+            while True:
+                line = response.readline().decode("utf8")
+                if line == "\r\n":
+                    break
+                h, v = line.split(":", 1)
+                headers[h.lower()] = v.strip()
 
-        if headers.get("transfer-encoding") == "chunked":
-            body = self.read_chunked(response)
-        else:
-            length = int(headers["content-length"])
-            body = response.read(length)
+            if status.startswith("3"):
+                return URL(headers["location"]).request()
 
-        if headers.get("content-encoding") == "gzip":
-            body = gzip.decompress(body)
+            if headers.get("transfer-encoding") == "chunked":
+                body = self.read_chunked(response)
+            else:
+                length = int(headers["content-length"])
+                body = response.read(length)
 
-        body = body.decode("utf8")
-        URL.cache[key] = body
-        return body
+            if headers.get("content-encoding") == "gzip":
+                body = gzip.decompress(body)
+
+            body = body.decode("utf8")
+            URL.cache[key] = body
+            return body
+        
+        except:
+            self.scheme = "about"
+            self.path = "blank"
+            self.data = ""
+            self.host = None
+            self.port = None
+            return ""
 
     def read_chunked(self, response):
         chunks = []
