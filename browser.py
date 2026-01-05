@@ -2,51 +2,101 @@ import socket
 import ssl
 import gzip
 import tkinter
+import tkinter.font
 
 WIDTH, HEIGHT = 1900, 1300
 SCROLL_STEP = 100
-HSTEP, VSTEP = 18, 25
-
+HSTEP, VSTEP = 13, 18
+FONTS = {}
 
 def lex(body):
-    text = ""
+    out = []
+    buffer = ""
     in_tag = False
     in_entity = False
-    entity = ""
-
-    for c in body:
-        # Tag handling
-        if in_tag:
-            if c == ">":
-                in_tag = False
-            continue
-
-        # Entity handling
+    entity = ""  # Need a separate buffer for entities
+    
+    i = 0
+    while i < len(body):
+        c = body[i]
+        
         if in_entity:
+            entity += c
             if c == ";":
-                entity += c
+                # Check if it's a known entity
                 if entity == "&lt;":
-                    text += "<"
+                    buffer += "<"
                 elif entity == "&gt;":
-                    text += ">"
+                    buffer += ">"
+                elif entity == "&amp;":
+                    buffer += "&"
+                elif entity == "&quot;":
+                    buffer += '"'
+                elif entity == "&apos;":
+                    buffer += "'"
+                else:
+                    # Not a valid entity, add as plain text
+                    buffer += entity
                 in_entity = False
                 entity = ""
-            else:
-                entity += c
+            i += 1
             continue
-
+            
+        if c == "&":
+            # Check if it's actually an entity by looking ahead
+            # Common entities: &lt; &gt; &amp; &quot; &apos;
+            remaining = len(body) - i - 1
+            if remaining >= 3:
+                # Check for common 3-char entities: &lt; &gt;
+                if body[i:i+4] == "&lt;" or body[i:i+4] == "&gt;":
+                    in_entity = True
+                    entity = "&"
+                    i += 1
+                    continue
+            if remaining >= 4:
+                # Check for 4-char entity: &amp;
+                if body[i:i+5] == "&amp;":
+                    in_entity = True
+                    entity = "&"
+                    i += 1
+                    continue
+            if remaining >= 5:
+                # Check for 5-char entities: &quot; &apos;
+                if body[i:i+6] == "&quot;" or body[i:i+6] == "&apos;":
+                    in_entity = True
+                    entity = "&"
+                    i += 1
+                    continue
+            
+            # If not an entity, just add & to buffer
+            buffer += c
+            i += 1
+            continue
+            
         if c == "<":
             in_tag = True
+            if buffer: out.append(Text(buffer))
+            buffer = ""
+            i += 1
             continue
-
-        if c == "&":
-            in_entity = True
-            entity = "&"
+            
+        if c == ">":
+            in_tag = False
+            out.append(Tag(buffer))
+            buffer = ""
+            i += 1
             continue
-
-        text += c
-
-    return text
+            
+        buffer += c
+        i += 1
+        
+    if buffer:
+        if in_tag:
+            out.append(Tag(buffer))
+        else:
+            out.append(Text(buffer))
+    
+    return out
 
 import tkinter
 
@@ -72,7 +122,7 @@ class Browser:
 
         self.scroll = 0
         self.display_list = []
-        self.text = ""
+        self.tokens = []
         self.width = WIDTH
         self.height = HEIGHT
         self.document_height = 0
@@ -137,44 +187,26 @@ class Browser:
         self.width = self.canvas.winfo_width()
         self.height = self.canvas.winfo_height()
 
-        if self.text:
-            self.display_list = self.layout(self.text)
+        if self.tokens:
+            # Re-layout with current width
+            layout = Layout(self.tokens, self.width)
+            self.display_list = layout.display_list
+            self.document_height = layout.document_height
             self.draw()
         
         # Position scrollbar after resize
         self.position_scrollbar()
 
-    def layout(self, text):
-        display_list = []
-        cursor_x, cursor_y = HSTEP, VSTEP
-
-        for c in text:
-            if c == "\n":
-                cursor_x = HSTEP
-                cursor_y += VSTEP
-                continue
-
-            display_list.append((cursor_x, cursor_y, c))
-            cursor_x += HSTEP
-
-            if cursor_x >= self.width - 40:  # Account for scrollbar width
-                cursor_x = HSTEP
-                cursor_y += VSTEP
-
-        self.document_height = cursor_y
-                    
-        return display_list
-
     def draw(self):
         self.canvas.delete("all")
 
         # Text
-        for x, y, c in self.display_list:
+        for x, y, word, font in self.display_list:
             if y > self.scroll + self.height:
                 continue
-            if y + VSTEP < self.scroll:
+            if y + font.metrics("linespace") * 1.25 < self.scroll:
                 continue
-            self.canvas.create_text(x, y - self.scroll, text=c, anchor="nw")
+            self.canvas.create_text(x, y - self.scroll, text=word, anchor="nw", font=font)
 
         # Update scrollbar position and thumb
         if self.document_height > self.height:
@@ -194,10 +226,110 @@ class Browser:
 
     def load(self, url):
         body = url.request()
-        self.text = lex(body)
-        self.display_list = self.layout(self.text)
+        self.tokens = lex(body)
+        self.display_list = Layout(self.tokens, self.width).display_list
         self.draw()
 
+class Text:
+    def __init__(self, text):
+        self.text = text
+
+class Tag:
+    def __init__(self, tag):
+        self.tag = tag
+
+def get_font(size, weight, style):
+    key = (size, weight, style)
+    if key not in FONTS:
+        font = tkinter.font.Font(size=size, weight=weight,
+            slant=style)
+        label = tkinter.Label(font=font)
+        FONTS[key] = (font, label)
+    return FONTS[key][0]
+
+class Layout:
+    
+    def __init__(self, tokens, width):
+        self.display_list = []
+        self.tokens = tokens
+        self.width = width
+        self.size = 12
+        self.line = []
+
+        self.cursor_x = HSTEP
+        self.cursor_y = VSTEP
+        self.weight = "normal"
+        self.style = "roman"
+
+
+        for tok in tokens:
+            self.token(tok)
+
+        self.document_height = self.cursor_y
+        
+        self.flush()
+
+    def token(self, tok):
+        if isinstance(tok, Text):
+            for word in tok.text.split():
+                self.word(word)
+        elif tok.tag == "i":
+            self.style = "italic"
+        elif tok.tag == "/i":
+            self.style = "roman"
+        elif tok.tag == "b":
+            self.weight = "bold"
+        elif tok.tag == "/b":
+            self.weight = "normal"
+        elif tok.tag == "small":
+            self.size -= 2
+        elif tok.tag == "/small":
+            self.size += 2
+        elif tok.tag == "big":
+            self.size += 4
+        elif tok.tag == "/big":
+            self.size -= 4
+        elif tok.tag == "br":
+            self.flush()
+        elif tok.tag == "/p":
+            self.flush()
+            self.cursor_y += VSTEP
+
+        self.document_height = self.cursor_y
+                
+        return self.display_list
+    
+    def word(self, word):
+        font = get_font(self.size, self.weight, self.style)
+        w = font.measure(word)
+        if self.cursor_x + w > self.width - HSTEP - 40: 
+            self.flush()
+
+        # Store the current x position (where word starts)
+        word_x = self.cursor_x
+        self.cursor_x += w + font.measure(" ")
+        
+        # Store word with its starting position
+        self.line.append((word_x, word, font))
+
+    def flush(self):
+        if not self.line: return
+        metrics = [font.metrics() for x, word, font in self.line]
+        max_ascent = max([metric["ascent"] for metric in metrics])
+        baseline = self.cursor_y + 1.25 * max_ascent
+
+        for x, word, font in self.line:
+            y = baseline - font.metrics("ascent")
+            self.display_list.append((x, y, word, font))
+
+        max_descent = max([metric["descent"] for metric in metrics])
+        self.cursor_y = baseline + 1.25 * max_descent
+
+        self.cursor_x = HSTEP
+        self.line = []
+
+
+    
 class URL:
     sockets = {}
     cache = {}
